@@ -383,6 +383,7 @@ def eda_tool(df: pd.DataFrame) -> str:
         )
 
     result = {
+        "status": "SUCCESS",
         "tool": "Automated_EDA",
         "dataset_format": dataset_fmt,
         "summary": {
@@ -527,6 +528,7 @@ def detect_smurfing_tool(
     flagged_accounts.sort(key=lambda x: x["risk_score"], reverse=True)
 
     result = {
+        "status": "SUCCESS",
         "tool": "Smurfing_Detector",
         "typology": "Structuring / Smurfing (Fan-In)",
         "parameters": {
@@ -575,7 +577,11 @@ def detect_cycles_tool(
     max_cycles_to_report = 30
 
     try:
+        processed_count = 0
         for cycle in nx.simple_cycles(G, length_bound=max_length):
+            processed_count += 1
+            if processed_count > 100000:
+                break
             if len(cycle) < min_length:
                 continue
 
@@ -646,6 +652,7 @@ def detect_cycles_tool(
         logger.warning("Cycle detection encountered an issue: %s", str(e))
 
     result = {
+        "status": "SUCCESS",
         "tool": "Cycle_Detector",
         "typology": "Circular Layering",
         "parameters": {"min_length": min_length, "max_length": max_length},
@@ -681,7 +688,17 @@ def single_entity_lookup(
     """
     logger.info("Looking up entity: %s", account_id)
 
-    matching_nodes = [n for n in G.nodes() if account_id in str(n)]
+    if account_id in G.nodes:
+        matching_nodes = [account_id]
+    else:
+        matches = [n for n in G.nodes if str(n) == account_id or str(n).endswith('_' + account_id)]
+        if matches:
+            matching_nodes = [matches[0]]
+        else:
+            import re
+            pattern = re.compile(r'(?:^|_)' + re.escape(account_id) + r'(?:$|_)')
+            matches = [n for n in G.nodes if pattern.search(str(n))]
+            matching_nodes = [matches[0]] if matches else []
 
     if not matching_nodes:
         return json.dumps({
@@ -754,19 +771,25 @@ def single_entity_lookup(
         risk_factors.append(f"Cross-border activity across {len(cross_border)} jurisdictions")
 
     # Check if account appears in cycles
+    # Build 2-hop ego network to catch multi-hop cycles
+    ego_nodes = {node}
+    for neighbor in set(G.predecessors(node)) | set(G.successors(node)):
+        ego_nodes.add(neighbor)
+        ego_nodes.update(G.predecessors(neighbor))
+        ego_nodes.update(G.successors(neighbor))
+    # Limit size for performance
+    if len(ego_nodes) > 500:
+        ego_nodes = {node} | set(list(G.predecessors(node))[:50]) | set(list(G.successors(node))[:50])
+    ego_graph = G.subgraph(ego_nodes)
     try:
-        has_cycle = any(
-            node in cycle
-            for cycle in nx.simple_cycles(
-                G.subgraph(set(in_senders) | set(out_receivers) | {node}),
-                length_bound=5,
-            )
-        )
-        if has_cycle:
-            risk_score += 20
-            risk_factors.append("Participates in circular transaction patterns")
+        raw_cycles = list(nx.simple_cycles(ego_graph, length_bound=5))
+        entity_cycles = [c for c in raw_cycles if node in c]
     except Exception:
-        pass
+        entity_cycles = []
+
+    if entity_cycles:
+        risk_score += 20
+        risk_factors.append("Participates in circular transaction patterns")
 
     risk_score = min(100.0, risk_score)
     risk_level = classify_risk(risk_score)
@@ -1095,8 +1118,8 @@ def geo_risk_tool(df: pd.DataFrame) -> str:
             "domestic_transactions": domestic_count,
             "cross_border_pct": round(cross_border_count / total_txns * 100, 2) if total_txns > 0 else 0,
             "cross_border_laundering_count": cross_border_laundering,
-            "unique_countries": int(
-                df_geo["sender_location"].nunique() + df_geo["receiver_location"].nunique()
+            "unique_countries": len(
+                set(df_geo["sender_location"].dropna().unique()) | set(df_geo["receiver_location"].dropna().unique())
             ),
         },
         "top_corridors": corridor_results,

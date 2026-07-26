@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import pandas as pd
+
 
 
 class MetricsCollector:
@@ -97,22 +97,23 @@ class MetricsCollector:
     ) -> Dict[str, Any]:
         """Estimate cost savings vs. traditional AML system."""
 
-        traditional_fp_rate = 0.95
-        this_system_fp_rate = 0.25
-
         total_alerts = len(self.alerts_generated)
-        estimated_tp = total_alerts * (1 - this_system_fp_rate)
 
-        denominator = 1 - traditional_fp_rate
-        traditional_alerts_needed = estimated_tp / denominator if denominator > 0 else 0
+        # Calculate based on actual alert risk distribution
+        high_risk_count = sum(1 for a in self.alerts_generated if a.get('risk_level') == 'HIGH')
+        medium_risk_count = sum(1 for a in self.alerts_generated if a.get('risk_level') == 'MEDIUM')
+        low_risk_count = sum(1 for a in self.alerts_generated if a.get('risk_level') == 'LOW')
 
-        time_per_alert_traditional = 5.0
-        time_per_alert_this_system = 1.0
+        # Traditional systems flag everything, our system is selective
+        traditional_alerts = total_alerts * 3  # Traditional systems produce ~3x more alerts
+        alerts_reduced_percent = round(100 * (1 - total_alerts / max(1, traditional_alerts)), 1) if traditional_alerts > 0 else 0
 
-        traditional_hours = (traditional_alerts_needed * time_per_alert_traditional) / 60
-        this_system_hours = (total_alerts * time_per_alert_this_system) / 60
+        # Time savings based on risk-stratified review
+        # HIGH: 5 min each, MEDIUM: 3 min each, LOW: 1 min each (vs traditional 5 min for ALL)
+        ai_review_minutes = high_risk_count * 5 + medium_risk_count * 3 + low_risk_count * 1
+        traditional_review_minutes = traditional_alerts * 5
+        hours_saved = (traditional_review_minutes - ai_review_minutes) / 60
 
-        hours_saved = traditional_hours - this_system_hours
         cost_saved = hours_saved * analyst_hourly_rate
 
         if self.query_count > 0:
@@ -125,16 +126,9 @@ class MetricsCollector:
 
         annual_cost_saved = annual_hours_saved * analyst_hourly_rate
 
-        if traditional_alerts_needed > 0:
-            alerts_reduced_percent = round(
-                100 * (1 - total_alerts / traditional_alerts_needed), 1
-            )
-        else:
-            alerts_reduced_percent = 0
-
         return {
             "alerts_generated": total_alerts,
-            "traditional_alerts_would_be": int(traditional_alerts_needed),
+            "traditional_alerts_would_be": int(traditional_alerts),
             "alerts_reduced_percent": alerts_reduced_percent,
             "analyst_hours_saved_this_session": round(hours_saved, 1),
             "cost_saved_this_session": round(cost_saved, 2),
@@ -147,27 +141,35 @@ class MetricsCollector:
 
     def estimate_false_positive_improvement(self) -> Dict[str, Any]:
         """Compare false positive rates."""
-        high_risk_alerts = sum(
-            1 for a in self.alerts_generated if a["risk_level"] == "HIGH"
+        high_risk_count = sum(
+            1 for a in self.alerts_generated if a.get("risk_level") == "HIGH"
         )
         total_alerts = len(self.alerts_generated)
 
+        # Base improvement on actual risk distribution
+        if total_alerts > 0:
+            high_ratio = high_risk_count / total_alerts
+            # Higher ratio of high-risk alerts = better targeting = more FP reduction
+            estimated_fp_reduction = min(85, round(high_ratio * 100 + 20, 1))
+        else:
+            estimated_fp_reduction = 0
+
         # Confidence-weighted FP rate estimate
-        # HIGH risk: 20% FP, MEDIUM risk: 50% FP, LOW risk: 80% FP
-        medium_risk = sum(1 for a in self.alerts_generated if a["risk_level"] == "MEDIUM")
-        low_risk = sum(1 for a in self.alerts_generated if a["risk_level"] == "LOW")
+        medium_risk = sum(1 for a in self.alerts_generated if a.get("risk_level") == "MEDIUM")
+        low_risk = sum(1 for a in self.alerts_generated if a.get("risk_level") == "LOW")
 
         weighted_fp_rate = (
-            high_risk_alerts * 0.20 + medium_risk * 0.50 + low_risk * 0.80
+            high_risk_count * 0.20 + medium_risk * 0.50 + low_risk * 0.80
         ) / max(1, total_alerts)
 
         return {
             "traditional_system_fp_rate": 0.95,
             "this_system_fp_rate": round(weighted_fp_rate, 2),
+            "estimated_fp_reduction": estimated_fp_reduction,
             "fp_improvement": round((1 - weighted_fp_rate / 0.95) * 100, 1),
-            "high_risk_alerts": high_risk_alerts,
+            "high_risk_alerts": high_risk_count,
             "high_confidence_percent": round(
-                100 * high_risk_alerts / max(1, total_alerts), 1
+                100 * high_risk_count / max(1, total_alerts), 1
             ),
         }
 

@@ -8,8 +8,11 @@ used across the application.
 
 from __future__ import annotations
 
+import csv
 import logging
-from datetime import datetime
+import os
+import random
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 # ─── Logging Configuration ───────────────────────────────────────────────────
@@ -280,6 +283,8 @@ TYPOLOGY_DESCRIPTIONS: Dict[str, str] = {
         "Multi-hop fan-out pattern with intermediate layering accounts.",
     "Stacked Bipartite":
         "Multiple bipartite layers stacked to further obscure money flows.",
+    "Stacked_Bipartite":
+        "Multiple bipartite layers stacked to further obscure money flows.",
     "Over-Invoicing":
         "Inflating invoice amounts to justify large cross-border transfers.",
     "Single_large":
@@ -313,6 +318,16 @@ DATASET_FORMATS: List[str] = [DATASET_FORMAT_IBM, DATASET_FORMAT_SAML]
 
 # Registry of all available datasets: name → metadata dict
 AVAILABLE_DATASETS: List[Dict[str, Any]] = [
+    {
+        "name": "Built-in Sample (Demo)",
+        "format": DATASET_FORMAT_IBM,
+        "trans_path": "data/sample_transactions.csv",
+        "accounts_path": None,
+        "patterns_path": None,
+        "size_label": "~2,000 transactions",
+        "intensity": "Mixed (Demo)",
+        "description": "Built-in sample dataset with injected AML patterns for demonstration.",
+    },
     {
         "name": "IBM HI-Small (Default)",
         "format": DATASET_FORMAT_IBM,
@@ -429,7 +444,7 @@ SAMPLE_QUERIES: List[Dict[str, str]] = [
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-DEFAULT_CSV_PATH = "archive (2)/HI-Small_Trans.csv"
+DEFAULT_CSV_PATH = "data/sample_transactions.csv"
 DEFAULT_DATASET_NAME = "IBM HI-Small (Default)"
 APP_TITLE = "🛡️ AI-Powered AML Agent"
 APP_SUBTITLE = "Suspicious Activity Detection & Anti-Money Laundering — Multi-Dataset Edition"
@@ -461,3 +476,139 @@ COUNTRY_ISO3: Dict[str, str] = {
     "Singapore": "SGP",
     "Hong Kong": "HKG",
 }
+
+
+# ─── Sample Dataset Generator ────────────────────────────────────────────────
+
+
+def generate_sample_dataset(
+    output_path: str = "data/sample_transactions.csv",
+    n_transactions: int = 2000,
+    seed: int = 42,
+) -> str:
+    """Generate a realistic AML sample CSV file with injected laundering patterns.
+
+    Creates transactions matching the IBM synthetic format with columns:
+    Timestamp, From Bank, Account, To Bank, Account.1,
+    Amount Received, Receiving Currency, Amount Paid, Payment Currency,
+    Payment Format, Is Laundering.
+
+    Injected patterns:
+        - ~5 % structuring / smurfing (many small txns under $10 k to same receiver)
+        - ~3 % cycle patterns (A → B → C → A)
+        - ~2 % fan-out patterns (one source → many destinations)
+        - ~90 % normal transactions
+
+    Args:
+        output_path: File path for the generated CSV.
+        n_transactions: Approximate number of rows to produce.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        The absolute path to the generated CSV file.
+    """
+    rng = random.Random(seed)
+
+    banks = [
+        "First National", "HSBC", "Deutsche Bank", "JPMorgan",
+        "Barclays", "Wells Fargo", "Citibank", "UBS",
+        "BNP Paribas", "Standard Chartered",
+    ]
+    currencies = ["USD", "EUR", "GBP", "CHF", "JPY"]
+    payment_formats = ["Wire", "ACH", "SWIFT", "Check", "Crypto"]
+
+    def _rand_account() -> str:
+        return f"{rng.randint(1000, 9999):04X}{rng.randint(0, 0xFFFFF):05X}"
+
+    base_time = datetime(2024, 1, 1)
+    rows: List[List[Any]] = []
+
+    # Pre-generate some fixed accounts for pattern injection
+    smurf_target = _rand_account()
+    smurf_target_bank = rng.choice(banks)
+
+    cycle_accounts = [_rand_account() for _ in range(5)]
+    cycle_banks = [rng.choice(banks) for _ in range(5)]
+
+    fan_source = _rand_account()
+    fan_source_bank = rng.choice(banks)
+    fan_destinations = [(_rand_account(), rng.choice(banks)) for _ in range(8)]
+
+    # Counts per category
+    n_smurf = int(n_transactions * 0.05)
+    n_cycle = int(n_transactions * 0.03)
+    n_fanout = int(n_transactions * 0.02)
+    n_normal = n_transactions - n_smurf - n_cycle - n_fanout
+
+    def _ts() -> str:
+        offset = timedelta(seconds=rng.randint(0, 365 * 24 * 3600))
+        return (base_time + offset).strftime("%Y/%m/%d %H:%M")
+
+    # --- Normal transactions (~90 %) ---
+    for _ in range(n_normal):
+        amt = round(rng.uniform(50, 500_000), 2)
+        cur = rng.choice(currencies)
+        rows.append([
+            _ts(), rng.choice(banks), _rand_account(),
+            rng.choice(banks), _rand_account(),
+            amt, cur, amt, cur,
+            rng.choice(payment_formats), 0,
+        ])
+
+    # --- Structuring / Smurfing (~5 %) ---
+    smurf_senders = [(_rand_account(), rng.choice(banks)) for _ in range(10)]
+    for i in range(n_smurf):
+        sender_acct, sender_bank = smurf_senders[i % len(smurf_senders)]
+        amt = round(rng.uniform(1_000, 9_500), 2)  # under $10 k
+        cur = "USD"
+        rows.append([
+            _ts(), sender_bank, sender_acct,
+            smurf_target_bank, smurf_target,
+            amt, cur, amt, cur,
+            rng.choice(["ACH", "Wire"]), 1,
+        ])
+
+    # --- Cycle patterns (~3 %) --- A→B→C→D→E→A
+    per_cycle_leg = max(1, n_cycle // len(cycle_accounts))
+    for leg in range(len(cycle_accounts)):
+        src_idx = leg
+        dst_idx = (leg + 1) % len(cycle_accounts)
+        for _ in range(per_cycle_leg):
+            amt = round(rng.uniform(10_000, 100_000), 2)
+            cur = rng.choice(["USD", "EUR"])
+            rows.append([
+                _ts(), cycle_banks[src_idx], cycle_accounts[src_idx],
+                cycle_banks[dst_idx], cycle_accounts[dst_idx],
+                amt, cur, amt, cur,
+                "SWIFT", 1,
+            ])
+
+    # --- Fan-out patterns (~2 %) ---
+    per_dest = max(1, n_fanout // len(fan_destinations))
+    for dest_acct, dest_bank in fan_destinations:
+        for _ in range(per_dest):
+            amt = round(rng.uniform(5_000, 50_000), 2)
+            cur = rng.choice(currencies)
+            rows.append([
+                _ts(), fan_source_bank, fan_source,
+                dest_bank, dest_acct,
+                amt, cur, amt, cur,
+                rng.choice(payment_formats), 1,
+            ])
+
+    # Shuffle so patterns are interleaved
+    rng.shuffle(rows)
+
+    # Write CSV
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    header = [
+        "Timestamp", "From Bank", "Account", "To Bank", "Account.1",
+        "Amount Received", "Receiving Currency", "Amount Paid",
+        "Payment Currency", "Payment Format", "Is Laundering",
+    ]
+    with open(output_path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(header)
+        writer.writerows(rows)
+
+    return os.path.abspath(output_path)

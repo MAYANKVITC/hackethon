@@ -20,7 +20,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
-from src.agent import create_aml_agent, run_agent_query
+from src.agent import create_aml_agent, run_agent_query, parse_query_intent
 from src.graph_engine import load_accounts_data, load_aml_data, load_patterns_data
 from src.metrics import MetricsCollector, format_efficiency_dashboard
 from src.utils import (
@@ -37,7 +37,16 @@ from src.utils import (
     SAMPLE_QUERIES,
     format_currency,
     format_number,
+    generate_sample_dataset,
 )
+
+# Auto-generate sample dataset if it doesn't exist
+_sample_path = Path("data/sample_transactions.csv")
+if not _sample_path.exists():
+    try:
+        generate_sample_dataset(str(_sample_path))
+    except Exception:
+        pass  # Will be handled when user tries to load
 
 # Load environment variables
 load_dotenv()
@@ -897,6 +906,175 @@ def render_geo_risk_results(data: Dict[str, Any]) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# NEW TOOL RENDERERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def render_feature_engineering_results(data: Dict[str, Any]) -> None:
+    """Render Feature Engineering tool results."""
+    st.markdown('<div class="section-header">⚙️ Feature Engineering Results</div>',
+                unsafe_allow_html=True)
+
+    if data.get("status") != "SUCCESS":
+        st.warning(data.get("error", "Feature engineering encountered an issue."))
+        return
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Features Created", data.get("feature_count", 0))
+    with c2:
+        st.metric("Accounts Processed", data.get("total_accounts", "—"))
+    with c3:
+        skipped = data.get("skipped_features", [])
+        st.metric("Features Skipped", len(skipped) if skipped else 0)
+
+    # Feature summary statistics
+    summary_stats = data.get("summary_statistics", {})
+    if summary_stats:
+        st.markdown("**Feature Summary Statistics**")
+        stats_rows = []
+        for feat_name, stats in summary_stats.items():
+            if isinstance(stats, dict):
+                stats_rows.append({
+                    "Feature": feat_name,
+                    "Mean": f"{stats.get('mean', 0):.2f}",
+                    "Std": f"{stats.get('std', 0):.2f}",
+                    "Min": f"{stats.get('min', 0):.2f}",
+                    "Max": f"{stats.get('max', 0):.2f}",
+                })
+        if stats_rows:
+            st.dataframe(pd.DataFrame(stats_rows), use_container_width=True, hide_index=True)
+
+    # Top anomalous accounts
+    top_accounts = data.get("top_anomalous_accounts", [])
+    if top_accounts:
+        st.markdown("**Top Anomalous Accounts by Feature Values**")
+        st.dataframe(pd.DataFrame(top_accounts), use_container_width=True, hide_index=True)
+
+
+def render_anomaly_detection_results(data: Dict[str, Any]) -> None:
+    """Render ML Anomaly Detection tool results."""
+    st.markdown('<div class="section-header">🔬 Anomaly Detection Results</div>',
+                unsafe_allow_html=True)
+
+    if data.get("status") != "SUCCESS":
+        st.warning(data.get("error", "Anomaly detection encountered an issue."))
+        return
+
+    # Summary metrics
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Method Used", data.get("method_used", "—").title())
+    with c2:
+        st.metric("Accounts Analyzed", format_number(data.get("total_accounts_analyzed", 0)))
+    with c3:
+        st.metric("Anomalies Detected", format_number(data.get("anomalies_detected", 0)))
+    with c4:
+        rate = data.get("anomaly_rate", 0)
+        st.metric("Anomaly Rate", f"{rate:.1f}%")
+
+    # Detection summary
+    summary = data.get("detection_summary", "")
+    if summary:
+        st.info(summary)
+
+    # Flagged accounts table
+    flagged = data.get("flagged_accounts", [])
+    if flagged:
+        render_risk_table(flagged, "🚨 ML-Flagged Suspicious Accounts")
+
+        # Risk distribution chart
+        risk_counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        for acc in flagged:
+            level = acc.get("risk_level", "LOW")
+            risk_counts[level] = risk_counts.get(level, 0) + 1
+
+        fig = go.Figure(data=[go.Pie(
+            labels=list(risk_counts.keys()),
+            values=list(risk_counts.values()),
+            marker_colors=[RISK_COLORS.get(k, "#666") for k in risk_counts.keys()],
+            hole=0.4,
+        )])
+        fig.update_layout(
+            title=dict(text="Risk Distribution of Flagged Accounts", font=dict(color="#E0E0E0")),
+            plot_bgcolor="#0E1117", paper_bgcolor="#0E1117",
+            font=dict(color="#E0E0E0"), height=350,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Model parameters
+    params = data.get("model_parameters", {})
+    if params:
+        with st.expander("🔧 Model Parameters"):
+            st.json(params)
+
+
+def render_risk_classification_results(data: Dict[str, Any]) -> None:
+    """Render Risk Classification tool results."""
+    st.markdown('<div class="section-header">📊 Risk Classification Results</div>',
+                unsafe_allow_html=True)
+
+    if data.get("status") != "SUCCESS":
+        st.warning(data.get("error", "Risk classification encountered an issue."))
+        return
+
+    # Summary metrics
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Total Classified", format_number(data.get("total_classified", 0)))
+    with c2:
+        escalation = data.get("escalation_summary", {})
+        sar_count = escalation.get("immediate_sar", 0)
+        st.metric("Immediate SAR Filings", sar_count)
+
+    # Risk distribution
+    risk_dist = data.get("risk_distribution", {})
+    if risk_dist:
+        st.markdown("**Risk Level Distribution**")
+        dist_cols = st.columns(3)
+        for idx, (level, count) in enumerate(risk_dist.items()):
+            with dist_cols[idx % 3]:
+                color = RISK_COLORS.get(level, "#666")
+                st.markdown(
+                    f'<div style="text-align:center;padding:1rem;border-radius:12px;'
+                    f'background:linear-gradient(135deg,{color}22,{color}44);'
+                    f'border:1px solid {color}66;">'
+                    f'<div style="font-size:2rem;font-weight:700;color:{color}">{count}</div>'
+                    f'<div style="color:#CCC;font-size:0.9rem">{level} Risk</div></div>',
+                    unsafe_allow_html=True
+                )
+
+    # Escalation summary
+    if escalation:
+        st.markdown("**Escalation Recommendations**")
+        esc_cols = st.columns(3)
+        with esc_cols[0]:
+            st.metric("📋 Immediate SAR", escalation.get("immediate_sar", 0))
+        with esc_cols[1]:
+            st.metric("🔍 Enhanced Monitoring", escalation.get("enhanced_monitoring", 0))
+        with esc_cols[2]:
+            st.metric("📎 Standard Monitoring", escalation.get("standard_monitoring", 0))
+
+    # Classified accounts
+    classified = data.get("classified_accounts", [])
+    if classified:
+        st.markdown("**Top Risk-Classified Accounts**")
+        rows = []
+        for acc in classified[:30]:
+            rows.append({
+                "Account": acc.get("account", "N/A"),
+                "Base Score": f"{acc.get('base_score', 0):.0f}",
+                "Graph Adj.": f"+{acc.get('graph_adjustment', 0):.0f}",
+                "Rule Adj.": f"+{acc.get('rule_adjustment', 0):.0f}",
+                "Final Score": f"{acc.get('final_score', 0):.0f}",
+                "Risk Level": acc.get("risk_level", "LOW"),
+                "Action": acc.get("recommended_action", "Monitor"),
+            })
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # AGENT EXECUTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -947,6 +1125,27 @@ if run_query and query_input and st.session_state.df is not None:
             else:
                 st.markdown("_No tools were invoked._")
 
+        # ── Parsed Intent Display ─────────────────────────────────────────
+        parsed_intent = result.get("parsed_intent", {})
+        if parsed_intent:
+            st.markdown("### 🎯 Query Analysis")
+            intent_cols = st.columns(4)
+            with intent_cols[0]:
+                st.metric("Intent Type", parsed_intent.get("intent_type", "general").replace("_", " ").title())
+            with intent_cols[1]:
+                entity = parsed_intent.get("entity_id", "—")
+                st.metric("Entity", entity if entity else "—")
+            with intent_cols[2]:
+                pattern = parsed_intent.get("pattern_type", "—")
+                st.metric("Pattern", pattern.title() if pattern else "—")
+            with intent_cols[3]:
+                date_desc = parsed_intent.get("date_range", {}).get("description", "—") if parsed_intent.get("date_range") else "None"
+                st.metric("Date Filter", date_desc)
+
+            if parsed_intent.get("amount_filter"):
+                af = parsed_intent["amount_filter"]
+                st.info(f"💰 Amount filter: {af['type']} ${af['value']:,.0f}")
+
         # ── Agent Response ────────────────────────────────────────────────
         st.markdown("### 💡 Agent Analysis")
         st.markdown(result.get("output", "No response."))
@@ -955,6 +1154,12 @@ if run_query and query_input and st.session_state.df is not None:
         for tool_out in result.get("tool_outputs", []):
             tool_name = tool_out.get("tool", "")
             data = tool_out.get("output", {})
+
+            if isinstance(data, str):
+                try:
+                    data = json.loads(data)
+                except Exception:
+                    pass
 
             if not isinstance(data, dict):
                 continue
@@ -1018,6 +1223,15 @@ if run_query and query_input and st.session_state.df is not None:
             elif tool_name == "Geo_Risk_Analyzer":
                 render_geo_risk_results(data)
 
+            elif tool_name == "Feature_Engineer":
+                render_feature_engineering_results(data)
+
+            elif tool_name == "Anomaly_Detector":
+                render_anomaly_detection_results(data)
+
+            elif tool_name == "Risk_Classifier":
+                render_risk_classification_results(data)
+
         # ── Efficiency Metrics ────────────────────────────────────────────
         st.markdown("---")
         st.markdown('<div class="section-header">📊 Efficiency Metrics & Cost Impact</div>',
@@ -1026,6 +1240,11 @@ if run_query and query_input and st.session_state.df is not None:
         # Collect risk data from tool outputs for metrics
         for tool_out in result.get("tool_outputs", []):
             data = tool_out.get("output", {})
+            if isinstance(data, str):
+                try:
+                    data = json.loads(data)
+                except Exception:
+                    pass
             if isinstance(data, dict):
                 # Extract alerts for metrics
                 if "flagged_accounts" in data:
