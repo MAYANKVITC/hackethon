@@ -302,14 +302,14 @@ df = fetch_from_database()
 
 Aegis provides 7 main tabs (visible at the top of the app):
 
-**▣ Dashboard**
+** Dashboard**
 - **KPI Cards** (6 metrics): Total Transactions, Suspicious Accounts, Estimated Laundering, High-Risk Alerts, AI Confidence, Active Investigations
 - **Executive Summary**: Dataset info, overall risk level, top typology, exposure estimate, account count
 - **Recommended Actions**: Actionable guidance based on portfolio risk
 - **Risk Distribution Chart**: Pie chart showing High/Medium/Low breakdown
 - **Recent Alerts Table**: Top 8 flagged accounts with progress bars
 
-**✦ AI Investigator**
+** AI Investigator**
 - **Query Input Field**: Enter natural language questions
 - **Sample Prompts**: 4 pre-built buttons for common queries
 - **AI Thinking Timeline**: 6-stage reasoning process (Intent Detection → Entity Extraction → Tool Selection → Graph Analysis → Risk Scoring → Recommendation)
@@ -319,14 +319,14 @@ Aegis provides 7 main tabs (visible at the top of the app):
   - Reasoning Panel: 5 risk factors with confidence score and recommendations
 - **SAR Draft Preview**: Generated SAR text with download button (generates on "Generate SAR" click)
 
-**🗂 Investigations**
+**Investigations**
 - **Accounts Table**: All 40 accounts with columns:
   - Account ID, Risk Score (progress bar), Typology, Total Sent, Countries, Assigned Analyst, Status
 - **Height**: 560px scrollable view
 - **Export Button**: Download full dataset as CSV for external analysis
 - **Sorting**: Risk score sorting (highest risk first)
 
-**◈ Graph Explorer**
+** Graph Explorer**
 - **Left Panel (Filters)**:
   - Min Risk Score slider (0-100)
   - Min Edge Amount slider ($0-$500K)
@@ -338,7 +338,7 @@ Aegis provides 7 main tabs (visible at the top of the app):
   - Hover info: Account details on mouse-over
   - Height: 560px canvas
 
-**📊 Analytics**
+**Analytics**
 - **6 Charts** (responsive grid layout):
   1. Typology Distribution (bar chart)
   2. Payment Methods (pie: Wire 34%, Crypto 26%, Card 18%, Cash 12%, ACH 10%)
@@ -347,14 +347,14 @@ Aegis provides 7 main tabs (visible at the top of the app):
   5. Risk Distribution (donut chart)
   6. Monthly Trends (multi-line: Flagged Volume vs Cases Closed)
 
-**📄 Reports**
+**Reports**
 - **3 Report Templates** (equal columns):
   1. **Executive Report** - Portfolio summary button → generates report with key findings
   2. **Suspicious Activity Report** - Top flagged account SAR → generates using highest risk account
   3. **Investigation Summary** - Case file button → generates reasoning trail + next steps
 - **CSV Export**: Full dataset download button at bottom
 
-**⚙ Settings**
+**Settings**
 - **General (Left Column)**:
   - Real-time alert stream toggle (ON by default)
   - Sound notifications toggle (OFF by default)
@@ -388,9 +388,9 @@ Aegis provides 7 main tabs (visible at the top of the app):
 - Shell Co.
 
 **System Status**
-- Graph Engine — Online ✓
-- LLM Gateway — Online ✓
-- Sanctions Feed — Sync 4m ago ⚠
+- Graph Engine — Online 
+- LLM Gateway — Online 
+- Sanctions Feed — Sync 4m ago 
 
 ## Data & Implementation Details
 
@@ -496,17 +496,17 @@ GLASS_DARK_THEME = {
 Aegis ships with **fully synthetic data generation** for demonstration purposes:
 
 **Advantages:**
-- ✅ Runs immediately without external dependencies
-- ✅ Reproducible results (seed-based)
-- ✅ Perfect for UI/UX testing and demos
-- ✅ No API keys or database credentials required
-- ✅ Ideal for hackathons and training
+- Runs immediately without external dependencies
+- Reproducible results (seed-based)
+- Perfect for UI/UX testing and demos
+- No API keys or database credentials required
+- Ideal for hackathons and training
 
 **Limitations (intentional for demo):**
-- ❌ Data is randomly generated, not real transactions
-- ❌ No actual money laundering patterns
-- ❌ AI investigation workflow is simulated (timeline-only, not real LLM reasoning)
-- ❌ Graph edges are random, not based on actual transaction flows
+- Data is randomly generated, not real transactions
+- No actual money laundering patterns
+- AI investigation workflow is simulated (timeline-only, not real LLM reasoning)
+- Graph edges are random, not based on actual transaction flows
 
 ### Production Data Integration
 
@@ -740,20 +740,20 @@ Hackathon/
 
 **Aegis** is a **production-ready AML Intelligence Platform UI** built with Streamlit that demonstrates:
 
-✅ **Comprehensive AML Investigation Interface** with 7 specialized tabs
-✅ **Enterprise-Grade UI/UX** with dark glassmorphic design
-✅ **Interactive Network Visualization** using NetworkX and Plotly  
-✅ **Multi-Stage AI Reasoning** workflow with confidence scores
-✅ **Compliance Document Generation** (SAR, Executive Reports, Case Files)
-✅ **Portfolio Analytics Dashboard** with 6 interactive charts
-✅ **Modular Architecture** designed for easy data/LLM integration
-✅ **Zero External Dependencies** (runs with synthetic data by default)
+**Comprehensive AML Investigation Interface** with 7 specialized tabs
+**Enterprise-Grade UI/UX** with dark glassmorphic design
+**Interactive Network Visualization** using NetworkX and Plotly  
+**Multi-Stage AI Reasoning** workflow with confidence scores
+**Compliance Document Generation** (SAR, Executive Reports, Case Files)
+**Portfolio Analytics Dashboard** with 6 interactive charts
+**Modular Architecture** designed for easy data/LLM integration
+**Zero External Dependencies** (runs with synthetic data by default)
 
 **Best For:**
-- 🏆 **Hackathons** - Complete, working demo in one file
-- 🎓 **Training & Demos** - Interactive AML investigation showcase
-- 🔍 **Proof-of-Concept** - Quickly test UI before full development
-- 🚀 **MVP Development** - Foundation for production AML platform
+- **Hackathons** - Complete, working demo in one file
+- **Training & Demos** - Interactive AML investigation showcase
+- **Proof-of-Concept** - Quickly test UI before full development
+- **MVP Development** - Foundation for production AML platform
 
 **Technology Stack:**
 - Frontend: Streamlit + Plotly + Custom CSS
